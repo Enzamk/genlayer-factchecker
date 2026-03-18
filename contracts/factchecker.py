@@ -4,38 +4,26 @@
 from genlayer import *
 
 class FactChecker(gl.Contract):
-    checks: list
+    last_claim: str
+    last_verdict: str
 
     def __init__(self):
-        self.checks = []
+        self.last_claim = ""
+        self.last_verdict = ""
 
     @gl.public.view
-    def get_checks(self) -> list:
-        return self.checks
+    def get_last_check(self) -> str:
+        return self.last_claim + "|" + self.last_verdict
 
     @gl.public.write
     def check_fact(self, claim: str) -> None:
-        web_result = gl.get_webpage("https://www.google.com/search?q=" + claim.replace(" ", "+"), mode="text")
-
-        result = gl.eq_principle_prompt_comparative(
-            f"""
-            Based on this web search result:
-            {web_result[:2000]}
-
-            Is this claim TRUE or FALSE: "{claim}"
-
-            Respond with ONLY a JSON object like this:
-            {{"verdict": "TRUE", "reason": "brief explanation"}}
-            or
-            {{"verdict": "FALSE", "reason": "brief explanation"}}
-            """,
-            principle="The verdict and reason must be consistent with the web evidence"
+        web_result = gl.get_webpage(
+            "https://en.wikipedia.org/wiki/" + claim.replace(" ", "_"),
+            mode="text"
         )
-
-        import json
-        parsed = json.loads(result)
-        self.checks.append({
-            "claim": claim,
-            "verdict": parsed["verdict"],
-            "reason": parsed["reason"]
-        })
+        verdict = gl.eq_principle_prompt_non_comparative(
+            f"Based on: {web_result[:1000]}\nIs this TRUE or FALSE: {claim}\nRespond only TRUE or FALSE.",
+            principle="Answer only TRUE or FALSE"
+        )
+        self.last_claim = claim
+        self.last_verdict = verdict.strip()[:5]

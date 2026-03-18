@@ -1,32 +1,33 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { createClient } from 'genlayer-js'
-import { studionet } from 'genlayer-js/chains'
+import { localnet } from 'genlayer-js/chains'
 import { privateKeyToAccount } from 'viem/accounts'
 
-const privateKey = import.meta.env.VITE_PRIVATE_KEY as `0x${string}`
+const privateKey = '0x422ddc857dfe9163119ff671b6240c0dc580bd02520225a2931a7cdfee33a707' as `0x${string}`
 const account = privateKeyToAccount(privateKey)
-const client = createClient({ chain: studionet, account })
+const client = createClient({ chain: localnet, account })
 const contractAddress = import.meta.env.VITE_CONTRACT_ADDRESS as `0x${string}`
 
-const checks = ref<any[]>([])
+const lastCheck = ref('')
 const claim = ref('')
 const loading = ref(false)
 const checking = ref(false)
 const status = ref('')
+const statusType = ref('')
 
-async function fetchChecks() {
+async function fetchLastCheck() {
   loading.value = true
   try {
     const result = await client.readContract({
       address: contractAddress,
-      functionName: 'get_checks',
+      functionName: 'get_last_check',
       args: [],
       account: account.address,
     })
-    checks.value = (result as any[]).reverse()
+    lastCheck.value = String(result)
   } catch (e: any) {
-    console.error(e)
+    lastCheck.value = ''
   } finally {
     loading.value = false
   }
@@ -36,23 +37,36 @@ async function submitClaim() {
   if (!claim.value.trim()) return
   checking.value = true
   status.value = 'Sending to AI validators...'
+  statusType.value = 'pending'
   try {
     await client.writeContract({
       address: contractAddress,
       functionName: 'check_fact',
       args: [claim.value.trim()],
     })
-    status.value = 'Validators checking... please wait 30s then refresh'
+    status.value = 'Validators checking... wait 30s then click Refresh'
+    statusType.value = 'success'
     claim.value = ''
-    setTimeout(() => { fetchChecks(); status.value = '' }, 30000)
+    setTimeout(() => { fetchLastCheck(); status.value = '' }, 30000)
   } catch (e: any) {
     status.value = 'Error: ' + e.message
+    statusType.value = 'error'
   } finally {
     checking.value = false
   }
 }
 
-onMounted(fetchChecks)
+const verdict = () => {
+  if (!lastCheck.value) return ''
+  const parts = lastCheck.value.split('|')
+  return parts[1] || ''
+}
+const claimText = () => {
+  if (!lastCheck.value) return ''
+  return lastCheck.value.split('|')[0] || ''
+}
+
+onMounted(fetchLastCheck)
 </script>
 
 <template>
@@ -73,7 +87,7 @@ onMounted(fetchChecks)
             <span class="subtitle">Powered by GenLayer · 5 AI Validators</span>
           </div>
         </div>
-        <div class="network-badge"><span class="dot"></span>studionet</div>
+        <div class="network-badge"><span class="dot"></span>localnet</div>
       </header>
 
       <div class="input-card">
@@ -91,29 +105,29 @@ onMounted(fetchChecks)
             <span v-else>Check Fact</span>
           </button>
         </div>
-        <div v-if="status" class="status-msg"><span class="status-dot"></span>{{ status }}</div>
+        <div v-if="status" class="status-msg" :class="statusType">
+          <span class="status-dot"></span>{{ status }}
+        </div>
       </div>
 
       <div class="results-card">
         <div class="results-header">
-          <div class="card-label">FACT CHECK RESULTS</div>
-          <button class="refresh-btn" @click="fetchChecks" :disabled="loading">
+          <div class="card-label">LAST FACT CHECK</div>
+          <button class="refresh-btn" @click="fetchLastCheck" :disabled="loading">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             Refresh
           </button>
         </div>
         <div v-if="loading" class="loading-state"><div class="loading-dots"><span></span><span></span><span></span></div></div>
-        <div v-else-if="checks.length === 0" class="empty-state">No fact checks yet. Submit a claim above!</div>
-        <div v-else class="checks-list">
-          <div v-for="(check, i) in checks" :key="i" class="check-item" :class="check.verdict === 'TRUE' ? 'true' : 'false'">
-            <div class="verdict-badge" :class="check.verdict === 'TRUE' ? 'badge-true' : 'badge-false'">
-              <span v-if="check.verdict === 'TRUE'">✓ TRUE</span>
-              <span v-else>✕ FALSE</span>
-            </div>
-            <div class="check-body">
-              <div class="check-claim">"{{ check.claim }}"</div>
-              <div class="check-reason">{{ check.reason }}</div>
-            </div>
+        <div v-else-if="!lastCheck" class="empty-state">No fact checks yet. Submit a claim above!</div>
+        <div v-else class="check-item" :class="verdict().includes('TRUE') ? 'true' : 'false'">
+          <div class="verdict-badge" :class="verdict().includes('TRUE') ? 'badge-true' : 'badge-false'">
+            <span v-if="verdict().includes('TRUE')">✓ TRUE</span>
+            <span v-else>✕ FALSE</span>
+          </div>
+          <div class="check-body">
+            <div class="check-claim">"{{ claimText() }}"</div>
+            <div class="check-reason">Verified by 5 AI validators on GenLayer</div>
           </div>
         </div>
       </div>
@@ -121,7 +135,7 @@ onMounted(fetchChecks)
       <footer class="footer">
         <span>{{ contractAddress.slice(0,6) }}...{{ contractAddress.slice(-4) }}</span>
         <span class="sep">·</span><span>5 validator consensus</span>
-        <span class="sep">·</span><span>GenLayer studionet</span>
+        <span class="sep">·</span><span>GenLayer localnet</span>
       </footer>
     </div>
   </div>
@@ -159,7 +173,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 .submit-btn:hover:not(:disabled){background:#00ffd0;box-shadow:0 0 20px var(--neon-glow);transform:translateY(-1px)}
 .submit-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none}
 .status-msg{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:var(--neon);padding:10px 14px;background:var(--neon-dim);border:1px solid var(--border);border-radius:8px}
-.status-dot{width:8px;height:8px;background:var(--neon);border-radius:50%;animation:pulse 1s ease-in-out infinite;flex-shrink:0}
+.status-msg.error{color:#ff4d6d;background:rgba(255,77,109,0.08);border-color:rgba(255,77,109,0.25)}
+.status-dot{width:8px;height:8px;background:currentColor;border-radius:50%;animation:pulse 1s ease-in-out infinite;flex-shrink:0}
 .results-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
 .refresh-btn{display:flex;align-items:center;gap:5px;background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:12px;font-family:'DM Sans',sans-serif;padding:4px 8px;border-radius:6px;transition:all 0.2s}
 .refresh-btn:hover:not(:disabled){color:var(--neon);background:var(--neon-dim)}
@@ -170,7 +185,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min
 .loading-dots span:nth-child(3){animation-delay:0.4s}
 @keyframes bounce{0%,80%,100%{transform:scale(0.6);opacity:0.4}40%{transform:scale(1);opacity:1}}
 .empty-state{text-align:center;padding:32px;color:var(--text-dim);font-size:14px}
-.checks-list{display:flex;flex-direction:column;gap:10px}
 .check-item{display:flex;gap:14px;align-items:flex-start;padding:14px;border-radius:10px;border:1px solid}
 .check-item.true{background:var(--true);border-color:var(--true-border)}
 .check-item.false{background:var(--false);border-color:var(--false-border)}
